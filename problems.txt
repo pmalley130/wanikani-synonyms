@@ -1,0 +1,2 @@
+too big pickle (forever load)
+weird pagination results from wanikani api
