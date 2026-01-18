@@ -47,7 +47,10 @@ def get_vocab(levels: str) -> list[str]:
     return characters
 
 #generate a lookup index that just holds the jp word and english defs from jmdict
-def generate_index():
+def generate_index(vocab: list[str]):
+    #set of wanikani vocab
+    vocab_set = set(vocab)
+
     #open dictionary file
     with open(DICT_PATH, encoding="utf-8") as f:
         data = json.load(f)
@@ -60,46 +63,62 @@ def generate_index():
 
     #walk through each entry
     for entry in words:
-       #collect all english definitions ("glosses in jmdict") for entry
+        terms = []
+        
+        #check to see if entry is in vocab list, if it is, add to terms
+        kanji_list = entry.get("kanji",[])
+        if kanji_list:
+            for k in kanji_list:
+                text = k.get("text")
+                if text and text in vocab_set:
+                    terms.append(text)
+        else: #entries that are just kana (like あっさり) don't have a "kanji" entry but we still want them
+            for k in entry.get("kana",[]):
+                text = k.get("text")
+                if text and text in vocab_set:
+                    terms.append(text)
+
+        if not terms:
+            continue
+
+        #term is in list, now save definitions ("gloss" in jmdict)
         glosses = []
         for sense in entry.get("sense",[]):
            for gloss in sense.get("gloss",[]):
-               txt = gloss.get("text")
-               if txt:
-                   glosses.append(txt)
+               text = gloss.get("text")
+               if text:
+                   glosses.append(text)
 
         if not glosses:
            continue
 
-        #attach to 日本語 term(s)
-        for k in entry.get("kanji",[]):
-            term = k.get("text")
-            if term:
-                index[term].extend(glosses)
+        #dedupe definitions within this entry
+        unique_glosses = []
+        seen_gloss = set()
+        for g in glosses:
+            if g not in seen_gloss:
+                seen_gloss.add(g)
+                unique_glosses.append(g)
 
-        #entries that are just kana (like あっさり) don't have a "kanji" entry but we still want them
-        #so index their kana instead
-        if not entry.get("kanji"):
-            for k in entry.get("kana",[]):
-                term = k.get("text")
-                if term:
-                    index[term].extend(glosses)
-
-        #dedupe definitions
-        for term, defs in index.items():
-            seen = set()
-            unique = []
-            for d in defs:
-                if d not in seen:
-                    seen.add(d)
-                    unique.append(d)
-            index[term] = unique
+        #save term to index
+        for term in set(terms):
             print(f"adding {term}")
+            index[term].extend(unique_glosses)
+    
+    #dedupe terms
+    for term, defs in index.items():
+        seen = set()
+        unique = []
+        for d in defs:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+        index[term] = unique
     
     #save the index for later loading
     with open(INDEX_PATH, "wb") as f:
         pickle.dump(index, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-levels = input("Which levels? (enter as a comma separated string, no spaces)")
+levels = input("Which levels? (enter as a comma separated string, no spaces) ")
 vocab = get_vocab(levels)
-print(vocab)
+generate_index(vocab)

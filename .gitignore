@@ -177,6 +177,7 @@ ruff.toml
 # playground for method testing
 playground.py
 data.json
+problems.txt
 
 #dictionary and pickle
 data/*
