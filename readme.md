@@ -12,4 +12,5 @@ read vocab item
     if dictionary definition not in definition, auxiliary meanings, user synonyms
         add to user synonyms
 
-current complete: get list of vocab
+current complete: get list of vocab and study materials
+create and load pickle
