@@ -48,7 +48,7 @@ def get_vocab(levels: str, study_map: list[dict]) -> list[dict]:
         "Wanikani-Revision": "20170710"
     }
     params = {
-        "types":"vocabulary"
+        "types":"vocabulary,kana_vocabulary"
     }
 
     #only add levels if user passed in specific level, otherwise a blank "levels" returns nothing from api
@@ -192,12 +192,16 @@ def update_definitions(index:list[dict]) -> list[dict]:
         wani_defs = {w.lower() for w in entry.get("wanikani_definitions",[])}
         synonyms = {s.lower() for s in entry.get("study_material_definitions",[])}
 
+        additions = [] #for tracking to see if we need to update on wanikani
+
         #walk through dictionary defs and add if not already represented
         for definition in entry.get("dictionary_definitions",[]):
             if definition.lower() not in wani_defs and definition.lower() not in synonyms:
                 entry["study_material_definitions"].append(definition)
                 synonyms.add(definition.lower())
+                additions.append(definition.lower())
     
+        entry["update"] = bool(additions) #create boolean flag for updating wanikani
     return index
 
 #push new definitions to the API
@@ -209,7 +213,12 @@ def push_updates(index:list[dict]):
     }
 
     for entry in index:
-        #payload is the same regardless if PUSH or POST
+        #skip this entry if updating isn't needed
+        if entry.get("update") == False:
+            print(f"Skipping {entry.get('term')}, no update needed on WaniKani")
+            continue
+        
+        #payload is the same regardless if PUSH or POST      
         payload = {
             "study_material": {
                 "subject_id": entry.get("id"),
