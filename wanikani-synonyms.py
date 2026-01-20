@@ -30,7 +30,8 @@ def get_study_materials() -> list[dict]:
         for item in response.get("data",[]):
             study_map.append({
                 "subject_id": item.get("data").get("subject_id"),
-                "study_material_id": item.get("id")
+                "study_material_id": item.get("id"),
+                "meaning_synonyms": item.get("data").get("meaning_synonyms")
             })
 
         #follow pagination due to 1000 api limit
@@ -68,10 +69,12 @@ def get_vocab(levels: str, study_map: list[dict]) -> list[dict]:
             if id is not None and char:
                 #walk through study materials (should use a map here but the list is so small we don't mind the performance hit for now)
                 study_material_id = None
+                study_material_definitions = None
                 for study_material in study_map:
                     #if there's a matching study material for this subject, add it to dict
                     if study_material.get("subject_id") == id:
-                        study_material_id = study_material.get("study_material_id")
+                        study_material_id = study_material.get("study_material_id"),
+                        study_material_definitions = study_material.get("meaning_synonyms")
                         break
                 
                 #collect the wanikani definitions
@@ -80,10 +83,13 @@ def get_vocab(levels: str, study_map: list[dict]) -> list[dict]:
                 meanings = [m["meaning"] for m in data.get("meanings",[]) if m["accepted_answer"]]
                 auxiliary_meanings = [m["meaning"] for m in data.get("auxiliary_meanings",[]) if m["type"] == "whitelist"]
                 wanikani_definitions = meanings + auxiliary_meanings
+
+                #add to list
                 vocab.append({
                     "id":id,
                     "term": char,
                     "study_material_id": study_material_id,
+                    "study_material_definitions": study_material_definitions,
                     "wanikani_definitions": wanikani_definitions
                 })
 
@@ -173,14 +179,33 @@ def generate_index(vocab: list[dict]):
     with open(INDEX_PATH, "wb") as f:
         pickle.dump(vocab, f, protocol=pickle.HIGHEST_PROTOCOL)
 
+#check existing wanikani definitions (and user synonyms) against dictionary definitions to add more user synonyms
+def update_definitions(index:list[dict]) -> list[dict]:
+    for entry in index:
+        #can't iterate over None, have to make it empty list instead
+        if entry.get("study_material_definitions") is None:
+            entry["study_material_definitions"] = []
+        
+        #normalize case
+        wani_defs = {w.lower() for w in entry.get("wanikani_definitions",[])}
+        synonyms = {s.lower() for s in entry.get("study_material_definitions",[])}
+
+        #walk through dictionary defs and add if not already represented
+        for definition in entry.get("dictionary_definitions",[]):
+            if definition.lower() not in wani_defs and definition.lower() not in synonyms:
+                entry["study_material_definitions"].append(definition)
+                synonyms.add(definition.lower())
+    
+    return index
+
 if not os.path.isfile(INDEX_PATH):
     levels = input("Which levels? (enter as a comma separated string, no spaces) ")
-    study_map = get_study_materials()
-    vocab = get_vocab(levels,study_map)
+    study_materials = get_study_materials()
+    vocab = get_vocab(levels,study_materials)
     generate_index(vocab)
 
 with open(INDEX_PATH, "rb") as f:
     index = pickle.load(f)
 
-print(json.dumps(index,indent=3,ensure_ascii=False))
+index = update_definitions(index)
 

@@ -14,3 +14,4 @@ read vocab item
 
 current complete: get list of vocab and study materials
 create and load pickle
+update study_materials locally with dictionary definitions
