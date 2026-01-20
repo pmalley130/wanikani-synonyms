@@ -211,7 +211,7 @@ def update_definitions(index:list[dict]) -> list[dict]:
     return index
 
 def sleep_with_countdown(wait):
-    for _ in track(range(wait), decription="Waiting..."):
+    for _ in track(range(wait), description="Waiting..."):
         time.sleep(1)
 
 #API has a strict limit, this slows down based on limits in headers
