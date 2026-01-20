@@ -149,12 +149,14 @@ def generate_index(vocab: list[dict]):
         seen_gloss = set()
         for g in glosses:
             if g not in seen_gloss:
+                if len(g) > 64: #wanikani has a 64 character max for definition
+                    break
                 seen_gloss.add(g)
                 unique_glosses.append(g)
 
         #save term to index
         for term in set(terms):
-            print(f"adding {term}")
+            print(f"adding {term} definitions to local index")
             index[term].extend(unique_glosses)
     
     #dedupe terms
@@ -198,6 +200,44 @@ def update_definitions(index:list[dict]) -> list[dict]:
     
     return index
 
+#push new definitions to the API
+def push_updates(index:list[dict]):
+    headers = {
+        "Wanikani-Revision": "20170710",
+        "Content-Type": "application/json; charset=utf-8",
+        "Authorization": f"Bearer {API_KEY}",
+    }
+
+    for entry in index:
+        #payload is the same regardless if PUSH or POST
+        payload = {
+            "study_material": {
+                "subject_id": entry.get("id"),
+                "meaning_synonyms": entry.get("study_material_definitions")
+            }
+        }
+
+        #if there's no study material, we use POST and generic endpoint
+        if not entry.get("study_material_id"):
+            #print(f"{entry.get('term')} has no study material, using POST")
+            url = "https://api.wanikani.com/v2/study_materials/"
+            
+            response = requests.post(url,headers=headers,json=payload)
+        
+        #if study material already exists, we add to it with PUT
+        if entry.get("study_material_id"):
+            #print(f"{entry.get('term')} has study material {entry.get('study_material_id')}, using PUT")
+            url = f"https://api.wanikani.com/v2/study_materials/{entry.get('study_material_id')[0]}"
+            #print(url)
+
+            response = requests.put(url,headers=headers,json=payload)
+
+        if response.status_code == 200 or response.status_code == 201:
+            print(f"Successfully updated {entry.get('term')} on WaniKani") 
+        else:
+            print(f"Error updating {entry.get('term')}:", response.status_code)
+            print(response.text)
+
 if not os.path.isfile(INDEX_PATH):
     levels = input("Which levels? (enter as a comma separated string, no spaces) ")
     study_materials = get_study_materials()
@@ -208,4 +248,5 @@ with open(INDEX_PATH, "rb") as f:
     index = pickle.load(f)
 
 index = update_definitions(index)
+push_updates(index)
 
