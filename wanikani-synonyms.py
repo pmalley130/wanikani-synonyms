@@ -2,6 +2,9 @@ import json
 import pickle
 from collections import defaultdict
 import requests
+import time
+
+from rich.progress import track
 
 import os
 from dotenv import load_dotenv
@@ -19,19 +22,22 @@ def get_study_materials() -> list[dict]:
         "Authorization": f"Bearer {API_KEY}",
         "Wanikani-Revision": "20170710"
     }
+    params = {
+        "subject_types": "vocabulary,kana_vocabulary"
+    }
 
     url = base_url
     study_map = [] #empty array to hold subject_id:study_material
     #if there's more than 1000 entries it paginates, so loop
     while url:
-        response = requests.get(url,headers=headers).json()
+        response = requests.get(url,headers=headers,params=params).json()
         
         #add entries
         for item in response.get("data",[]):
             study_map.append({
                 "subject_id": item.get("data").get("subject_id"),
                 "study_material_id": item.get("id"),
-                "meaning_synonyms": item.get("data").get("meaning_synonyms")
+                "meaning_synonyms": item.get("data").get("meaning_synonyms"),
             })
 
         #follow pagination due to 1000 api limit
@@ -204,6 +210,61 @@ def update_definitions(index:list[dict]) -> list[dict]:
         entry["update"] = bool(additions) #create boolean flag for updating wanikani
     return index
 
+def sleep_with_countdown(wait):
+    for _ in track(range(wait), description="Waiting..."):
+        time.sleep(1)
+
+#API has a strict limit, this slows down based on limits in headers
+def wanikani_request(method, url, headers=None, json=None):
+    #make the request
+    response = requests.request(method, url, headers=headers, json=json)
+
+    #parse rate limit headers
+    remaining = response.headers.get("RateLimit-Remaining")
+    reset_ts = response.headers.get("RateLimit-Reset")
+
+    try:
+        remaining = int(remaining) if remaining is not None else None
+    except ValueError:
+        remaining = None
+    try:
+        reset_ts = int(reset_ts) if reset_ts is not None else None
+    except ValueError:
+        reset_ts = None
+    
+    #if we're out of remaining tries, sleep until reset
+    if remaining == 0 and reset_ts:
+        now = int(time.time())
+        wait = max(1, reset_ts - now)
+        print(f"Rate limit reached, {wait} seconds until reset.")
+        sleep_with_countdown(wait)
+        #retry
+        response = requests.request(method, url, headers=headers, json=json)
+
+    #429 handling just in case the sleep doesn't work
+    if response.status_code == 429:
+        reset_ts = response.headers.get("RateLimit-Reset")
+        if reset_ts:
+            try:
+                reset_ts = int(reset_ts)
+                now = int(time.time())
+                wait = max(1, reset_ts - now)
+                print(f"Sleeping {wait} seconds due to 429")
+                sleep_with_countdown(wait)
+                response = requests.request(method,url,headers=headers,json=json)
+            except ValueError:
+                #give up and wait a full minute
+                print("Bad reset timestamp, sleeping 60s")
+                time.sleep(60)
+                response = requests.request(method,url,headers=headers,json=json)
+        else:
+            print("No reset header on code 429, sleeping 60s")
+            sleep_with_countdown(wait)
+            response = requests.request(method,url,headers=headers,json=json)
+
+    return response
+
+
 #push new definitions to the API
 def push_updates(index:list[dict]):
     headers = {
@@ -229,19 +290,17 @@ def push_updates(index:list[dict]):
         #if there's no study material, we use POST and generic endpoint
         if not entry.get("study_material_id"):
             #print(f"{entry.get('term')} has no study material, using POST")
-            url = "https://api.wanikani.com/v2/study_materials/"
-            
-            response = requests.post(url,headers=headers,json=payload)
+            url = "https://api.wanikani.com/v2/study_materials/"        
+            response = wanikani_request("POST",url,headers=headers,json=payload)
         
         #if study material already exists, we add to it with PUT
         if entry.get("study_material_id"):
             #print(f"{entry.get('term')} has study material {entry.get('study_material_id')}, using PUT")
             url = f"https://api.wanikani.com/v2/study_materials/{entry.get('study_material_id')[0]}"
             #print(url)
+            response = wanikani_request("PUT",url,headers=headers,json=payload)
 
-            response = requests.put(url,headers=headers,json=payload)
-
-        if response.status_code == 200 or response.status_code == 201:
+        if response.status_code in (200,201):
             print(f"Successfully updated {entry.get('term')} on WaniKani") 
         else:
             print(f"Error updating {entry.get('term')}:", response.status_code)
