@@ -173,8 +173,6 @@ def generate_index(vocab: list[dict]) -> list[dict]:
             if d not in seen:
                 seen.add(d)
                 unique.append(d)
-                if len(unique) == 5: 
-                    break
         index[term] = unique
 
     #add definition to original vocab list
@@ -243,7 +241,7 @@ def wanikani_request(method, url, headers=None, json=None):
         #retry
         response = requests.request(method, url, headers=headers, json=json)
 
-    #429 handling just in case the sleep doesn't work
+    #error 429 handling just in case the sleep doesn't work
     if response.status_code == 429:
         reset_ts = response.headers.get("RateLimit-Reset")
         if reset_ts:
@@ -310,7 +308,7 @@ def push_updates(index:list[dict]):
 
 
 if __name__ == "__main__":
-    levels = input("Which levels? (enter as a comma separated string, no spaces, blank for every level) ")
+    levels = input("Which vocab levels? (enter as a comma separated string, no spaces, blank for every level) ")
     
     print("Retrieving existing user synonyms")
     study_materials = get_study_materials()
