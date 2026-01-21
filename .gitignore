@@ -178,6 +178,7 @@ ruff.toml
 playground.py
 data.json
 problems.txt
+output.json
 
 #dictionary and pickle
 data/*
