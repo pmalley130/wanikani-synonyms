@@ -12,8 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DICT_PATH = os.getenv("DICT_PATH")
-INDEX_PATH = os.getenv("INDEX_PATH")
-API_KEY = os.getenv("WANIKANI_API_KEY") 
+API_KEY = os.getenv("WANIKANI_API_KEY")
 
 #subject API doesn't map study materials, so we should get them beforehand to manually map
 def get_study_materials() -> list[dict]:
@@ -104,8 +103,8 @@ def get_vocab(levels: str, study_map: list[dict]) -> list[dict]:
 
     return vocab
 
-#generate a lookup index that just holds the jp word and english defs from jmdict
-def generate_index(vocab: list[dict]):
+#generate a lookup index to map the jp word and english defs from jmdict
+def generate_index(vocab: list[dict]) -> list[dict]:
     #set of wanikani vocab terms
     vocab_terms = {item["term"] for item in vocab if item.get("term")}
 
@@ -147,6 +146,7 @@ def generate_index(vocab: list[dict]):
                if text:
                    glosses.append(text)
 
+        #skip to next entry if there's somehow no definitions
         if not glosses:
            continue
 
@@ -156,7 +156,7 @@ def generate_index(vocab: list[dict]):
         for g in glosses:
             if g not in seen_gloss:
                 if len(g) > 64: #wanikani has a 64 character max for definition
-                    break
+                    continue
                 seen_gloss.add(g)
                 unique_glosses.append(g)
 
@@ -173,7 +173,7 @@ def generate_index(vocab: list[dict]):
             if d not in seen:
                 seen.add(d)
                 unique.append(d)
-                if len(unique) == 5: #some common things like "上げる" have roughly one septillion possible definitions, so I've set an arbitrary cap
+                if len(unique) == 5: 
                     break
         index[term] = unique
 
@@ -183,9 +183,7 @@ def generate_index(vocab: list[dict]):
         if term in index:
             item["dictionary_definitions"] = index[term]
     
-    #save the vocab list for later loading
-    with open(INDEX_PATH, "wb") as f:
-        pickle.dump(vocab, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return vocab
 
 #check existing wanikani definitions (and user synonyms) against dictionary definitions to add more user synonyms
 def update_definitions(index:list[dict]) -> list[dict]:
@@ -202,12 +200,16 @@ def update_definitions(index:list[dict]) -> list[dict]:
 
         #walk through dictionary defs and add if not already represented
         for definition in entry.get("dictionary_definitions",[]):
+            #API allows a max of 8 user synonyms, break the loop early if we're there
+            if len(entry["study_material_definitions"]) >= 8:
+                break
+            
             if definition.lower() not in wani_defs and definition.lower() not in synonyms:
                 entry["study_material_definitions"].append(definition)
                 synonyms.add(definition.lower())
                 additions.append(definition.lower())
     
-        entry["update"] = bool(additions) #create boolean flag for updating wanikani
+        entry["update_wanikani"] = bool(additions) #create boolean flag for updating wanikani
     return index
 
 def sleep_with_countdown(wait):
@@ -275,7 +277,7 @@ def push_updates(index:list[dict]):
 
     for entry in index:
         #skip this entry if updating isn't needed
-        if entry.get("update") == False:
+        if entry.get("update_wanikani") == False:
             print(f"Skipping {entry.get('term')}, no update needed on WaniKani")
             continue
         
@@ -306,15 +308,27 @@ def push_updates(index:list[dict]):
             print(f"Error updating {entry.get('term')}:", response.status_code)
             print(response.text)
 
-if not os.path.isfile(INDEX_PATH):
-    levels = input("Which levels? (enter as a comma separated string, no spaces) ")
+
+if __name__ == "__main__":
+    levels = input("Which levels? (enter as a comma separated string, no spaces, blank for every level) ")
+    
+    print("Retrieving existing user synonyms")
     study_materials = get_study_materials()
+    
+    print("Retrieving vocabulary items")
     vocab = get_vocab(levels,study_materials)
-    generate_index(vocab)
+    
+    print("Building JP->EN mappings")
+    index = generate_index(vocab)
+    
+    print("Updating definitions")
+    index = update_definitions(index)
+    
+    with open("output.json", "w",encoding="utf-8") as f:
+        print("Writing new dictionary to output.json")
+        json.dump(index,f,indent=4,ensure_ascii=False)
 
-with open(INDEX_PATH, "rb") as f:
-    index = pickle.load(f)
-
-index = update_definitions(index)
-push_updates(index)
+    answer = input("Please review output.json for changes before continuing, changes are irreversible \nProceed? (y/n): ").lower().strip() in ('y', 'yes', 'true', '1')
+    if answer:
+        push_updates(index)
 
